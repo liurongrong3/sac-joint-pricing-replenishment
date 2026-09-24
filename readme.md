@@ -2,7 +2,7 @@
 
 单 SKU、单仓跨境电商仿真：用 **SAC** 联合决策 **每日售价 × 补货量**，并与 **ROP+跟价 / 滚动时域 MILP** 在同一 Gym 环境、同一零售 P&L 口径下对照。
 
-提前期 \(L=14\)、Episode=90 天；需求为相对竞品价的幂律弹性 \(D \propto (p/p_{\mathrm{comp}})^{-\gamma}\)。价格敏感时，经典报童 / 纯补货 OR 不够用，因此用 RL 做联合决策，用规则与 MILP 做可解释基线。
+提前期 $L=14$、Episode=90 天；需求为相对竞品价的幂律弹性 $D \propto (p/p_{\mathrm{comp}})^{-\gamma}$。价格敏感时，经典报童 / 纯补货 OR 不够用，因此用 RL 做联合决策，用规则与 MILP 做可解释基线。
 
 ---
 
@@ -41,7 +41,7 @@ python demand_pipeline.py
 作用：
 
 1. 按 `config.json → simulation` 生成相对竞品价的合成销量 CSV
-2. 拟合幂律参数 \(A,\gamma\)，写回 `config.json → environment.fit_A / fit_gamma`
+2. 拟合幂律参数 $A,\gamma$，写回 `config.json → environment.fit_A / fit_gamma`
 3. 输出弹性曲线图（默认 `demand_elasticity_curve.png`）
 
 若已有可用的 `fit_A / fit_gamma`，可跳过本步直接训练。
@@ -121,7 +121,7 @@ sac_shopee/
 | 固定下单费    | 50 RM / 次                                           |
 | 仓储       | ≤200：0.05/件/天；超出部分 0.25/件/天                         |
 | 缺货罚      | 15 RM / 件                                           |
-| 期末残值     | \((\text{现货}+\text{在途})\times c \times \rho\)，默认 \(\rho=1\) |
+| 期末残值     | (现货 + 在途) × $c$ × $\rho$，默认 $\rho=1$ |
 
 
 **需求模型**
@@ -158,10 +158,10 @@ $$
 动作空间：`Box([-1,1]^2)`
 
 
-| 分量  | 映射 |
-| --- | -------------------------------------------------- |
-| \(a_p\) | 线性映射到 [`min_price`, `max_price`]，再经约束夹紧 |
-| \(a_q\) | 线性映射到 `[0, max_order_qty]`，低于起订阈值视为 0 |
+| 分量 | 映射 |
+| --- | --- |
+| $a_p$ | 线性映射到 [`min_price`, `max_price`]，再经约束夹紧 |
+| $a_q$ | 线性映射到 `[0, max_order_qty]`，低于起订阈值视为 0 |
 
 
 ---
@@ -175,28 +175,17 @@ $$
 **真实 P&L（评估）**
 
 $$
-\begin{aligned}
-\text{net\_profit}
-&= \underbrace{p\cdot s - c\cdot s - F\cdot \mathbf{1}_{q>0}}_{\text{毛利}} \\
-&\quad - S_{\text{storage}} - b\cdot o
-- \text{opening\_charge} + \text{ending\_salvage}
-\end{aligned}
+\mathrm{net\_profit} = (p\cdot s - c\cdot s - F\cdot \mathbf{1}_{q>0}) - S_{\mathrm{storage}} - b\cdot o - \mathrm{opening} + \mathrm{salvage}
 $$
 
-- \(s\)：当日销量；\(o\)：缺货件数；\(F=50\)：有订货才扣  
+- $s$：当日销量；$o$：缺货件数；$F=50$：有订货才扣  
 - 采购变动成本在**售出日**结转，不在下单日一次性扣完  
 - 期初扣减 / 期末残值配对，避免「白捡开局库存」
 
 **训练 reward（默认权重见 `reward_shaping`）**
 
 $$
-\begin{aligned}
-r &= p\cdot s - c\cdot s - F\cdot \mathbf{1}_{q>0} \\
-&\quad - w_{\mathrm{storage}} S_{\text{storage}}
-- w_{\mathrm{stockout}} (b\cdot o) \\
-&\quad - w_{\mathrm{price}} \left(\frac{|p-p_{\mathrm{comp}}|}{p_{\mathrm{comp}}}\right)^{2} \\
-&\quad - \text{opening} + \text{salvage}
-\end{aligned}
+r = p\cdot s - c\cdot s - F\cdot \mathbf{1}_{q>0} - w_{\mathrm{storage}} S_{\mathrm{storage}} - w_{\mathrm{stockout}}(b\cdot o) - w_{\mathrm{price}}\left(\frac{|p-p_{\mathrm{comp}}|}{p_{\mathrm{comp}}}\right)^{2} - \mathrm{opening} + \mathrm{salvage}
 $$
 
 
@@ -212,14 +201,14 @@ $$
 约束在环境 `_map_actions` / `step` 中执行（硬投影），不依赖网络自己学合规。
 
 
-| 约束     | 做法 |
-| ------ | ------------------------------------------------------ |
-| 成本地板   | \(p \ge c + \texttt{min\_margin}\)（默认 +5 RM） |
-| 竞品价带   | \(p \in [p_{\mathrm{comp}}(1\pm w)]\)，默认 \(w=0.45\)，再与业务价上下限取交 |
-| 单次订货上限 | \(q \le \texttt{max\_order\_qty}=200\) |
-| 最小起订   | \(q < 10\) → 订 0（避免天天付固定费） |
-| 库存头寸帽  | \(\text{现货}+\text{在途}+q \le 650\)；超限则当日 \(q=0\) 或截断 |
-| 到货后再截断 | `step` 内先 `popleft` 到货，再按剩余头寸夹一次 \(q\) |
+| 约束 | 做法 |
+| --- | --- |
+| 成本地板 | $p \ge c + \texttt{min\_margin}$（默认 +5 RM） |
+| 竞品价带 | $p$ 夹在竞品价 $\pm 45\%$ 与业务价上下限的交集内 |
+| 单次订货上限 | $q \le \texttt{max\_order\_qty}=200$ |
+| 最小起订 | $q < 10$ → 订 0（避免天天付固定费） |
+| 库存头寸帽 | 现货 + 在途 + $q$ ≤ 650；超限则当日 $q=0$ 或截断 |
+| 到货后再截断 | `step` 内先 `popleft` 到货，再按剩余头寸夹一次 $q$ |
 
 
 规则 / MILP 基线共用同一套跟价与头寸逻辑，保证对照公平。
@@ -231,15 +220,15 @@ $$
 ## 对照策略说明
 
 
-| 策略              | 定价                           | 补货                                        |
-| --------------- | ---------------------------- | ----------------------------------------- |
-| Random          | 随机 \([-1,1]^2\)                  | 同左 |
-| ROP+MatchPrice  | 竞品价 × `match_ratio`（默认 0.98） | \((s,S)\)：`ROP=μL+SS`，`SS=safety_days·μ` |
-| MILP+MatchPrice | 同上跟价（价格**不进**求解器）            | 滚动窗口 \(N=21\)，PuLP+CBC，**只执行当天 \(q_0\)**；无解回退 ROP |
-| SAC             | 联合学 \(p,q\)                      | 联合学 \(p,q\) |
+| 策略 | 定价 | 补货 |
+| --- | --- | --- |
+| Random | 随机 $[-1,1]^2$ | 同左 |
+| ROP+MatchPrice | 竞品价 × `match_ratio`（默认 0.98） | $(s,S)$：`ROP=μL+SS`，`SS=safety_days·μ` |
+| MILP+MatchPrice | 同上跟价（价格**不进**求解器） | 滚动窗口 $N=21$，PuLP+CBC，**只执行当天 $q_0$**；无解回退 ROP |
+| SAC | 联合学 $p,q$ | 联合学 $p,q$ |
 
 
-MILP 为何不联合定价：收入 \(p\cdot\min(I,D(p))\) 含幂律非线性与 \(p\times s\) 双线性，不再是 MILP。求解器设 `timeLimit=5s`、`gapRel=0.01`。
+MILP 为何不联合定价：收入 $p\cdot\min(I,D(p))$ 含幂律非线性与 $p \times s$ 双线性，不再是 MILP。求解器设 `timeLimit=5s`、`gapRel=0.01`。
 
 ---
 
