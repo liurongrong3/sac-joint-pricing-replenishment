@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# 训练产物 / 实验输出（不上传）
+models/
+runs/
+tensorboard_logs/
+results/
+result-figure/
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.out
+*.csv
+*.png
+*.jpg
+*.pdf
+*.pptx
+
+# 个人材料 / 论文（不上传）
+简历/
+paper/
+*.md
+!readme.md
+!README.md
+
+# 本地覆盖配置
+config_local.json
+
+# IDE / 系统
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.cursor/

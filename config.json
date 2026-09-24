@@ -1,0 +1,243 @@
+{
+    "_file_description": "SAC Shopee 供应链 RL 训练统一配置文件",
+    "environment": {
+        "_comments": {
+            "lead_time": "补货提前期 L（天）：下单到货物入库的运输周期，影响在途库存管道长度",
+            "max_steps": "每个 Episode 的最大仿真天数，Episode 在此天数后终止，90天为一个季度",
+            "fit_A": "价格-需求曲线参数 A（幂律模型 D = A * P^(-gamma)），由历史数据拟合得到",
+            "fit_gamma": "价格-需求曲线弹性系数 gamma，越大表示价格对销量越敏感",
+            "p_comp": "竞品参考价格（RM），用于状态观测中的相对定价特征",
+            "inventory": "环境初始化时的默认库存量（件）",
+            "initial_inventory": "reset 时重置到的初始库存（件），与 inventory 保持一致即可",
+            "min_price": "智能体动作映射的最低售价（RM）",
+            "max_price": "智能体动作映射的最高售价（RM）",
+            "max_order_qty": "单次补货量的上限（件）",
+            "min_order_threshold": "触发补货的最小下单量阈值（件），低于此值视为不下单",
+            "cogs": "采购成本单价 COGS（RM/kg）",
+            "headhaul_shipping": "头程运费单价（RM/kg），与 COGS 合计构成单位进货成本",
+            "fixed_order_cost": "每次下单的固定杂费（RM），与采购量无关的固定成本",
+            "storage_normal_capacity": "正常仓储容量上限（件）：库存 ≤ 此值用正常费率，超出部分用积压费率",
+            "storage_fee_normal": "正常仓储费（RM/件/天），库存 ≤ storage_normal_capacity 时适用",
+            "storage_fee_overstock": "积压仓储费（RM/件/天），库存 > storage_normal_capacity 时对超出部分收取，惩罚滞销",
+            "stockout_penalty": "缺货机会成本惩罚（RM/件），每缺货一件的罚金",
+            "ending_inventory_salvage_ratio": "Episode 结束时现货+在途库存残值比例（相对 unit landed cost=cogs+headhaul）。1.0=按账面进货成本回收，避免期末库存被当成废品；0=不计残值"
+        },
+        "lead_time": 14,
+        "max_steps": 90,
+        "fit_A": 50.75390712781621,
+        "fit_gamma": 1.8138224003791896,
+        "p_comp": 35.0,
+        "inventory": 100.0,
+        "initial_inventory": 100.0,
+        "min_price": 15.0,
+        "max_price": 65.0,
+        "max_order_qty": 200.0,
+        "min_order_threshold": 10.0,
+        "cogs": 12.0,
+        "headhaul_shipping": 3.0,
+        "fixed_order_cost": 50.0,
+        "storage_normal_capacity": 200.0,
+        "storage_fee_normal": 0.05,
+        "storage_fee_overstock": 0.25,
+        "stockout_penalty": 15.0,
+        "ending_inventory_salvage_ratio": 1.0
+    },
+
+    "action_constraints": {
+        "_comments": {
+            "_section": "动作安全约束：抑制 SAC 塌缩成「两端跳价 + 狂补货」的 bang-bang 策略",
+            "min_margin": "最低售价相对单位进货成本(cogs+headhaul)的加价（RM）。避免售价贴成本清仓导致毛利≈0",
+            "max_inventory_position": "现货+在途库存上限（件）。超过则强制当日订货量为 0，防止 L 天延迟下连续超订堆仓",
+            "price_band_half_width": "相对竞品价允许的最大偏离比例。映射后的售价会被夹在 [p_comp*(1-w), p_comp*(1+w)] 与 [成本地板, max_price] 的交集内，减轻 15/65 两端抽风"
+        },
+        "min_margin": 5.0,
+        "max_inventory_position": 650.0,
+        "price_band_half_width": 0.45
+    },
+
+    "difficulty": {
+        "_comments": {
+            "_section": "课程学习三档市场动态参数；竞品基准价复用 environment.p_comp",
+            "noise_std": "需求对数噪声标准差，越大日销量越不稳定",
+            "demand_multiplier": "无特殊事件时的基础需求倍率（通常为 1.0）",
+            "weekend_days": "一周中视为周末的 weekday 编号（0=周一 … 6=周日）；仅 medium 使用",
+            "weekend_demand_multiplier": "周末自然流量需求倍率（如 1.2 = +20%）；仅 medium",
+            "comp_price_jitter_std": "竞品日常调价噪声标准差（RM）；仅 medium",
+            "comp_price_min": "竞品价截断下限（RM）；仅 medium，模拟正常跟价区间，防止对手标价太疯狂",
+            "comp_price_max": "竞品价截断上限（RM）；仅 medium",
+            "promo_cycle_days": "大促周期长度（天）；hard 下每周期末模拟一次平台大促窗",
+            "promo_window_days": "大促窗口相对周期边界的 day%cycle 取值（如 28,29,0,1 覆盖月末月初）",
+            "promo_discount": "大促期竞品折扣系数（0.85 = 八五折）；仅 hard",
+            "promo_price_noise_std": "大促期竞品价额外噪声标准差（RM）；仅 hard，不截断以模拟价格战",
+            "promo_demand_multiplier": "大促期需求倍率（如 3.0）；仅 hard"
+        },
+        "easy": {
+            "noise_std": 0.05,
+            "demand_multiplier": 1.0
+        },
+        "medium": {
+            "noise_std": 0.10,
+            "demand_multiplier": 1.0,
+            "weekend_days": [5, 6],
+            "weekend_demand_multiplier": 1.2,
+            "comp_price_jitter_std": 1.5,
+            "comp_price_min": 30.0,
+            "comp_price_max": 40.0
+        },
+        "hard": {
+            "noise_std": 0.20,
+            "demand_multiplier": 1.0,
+            "promo_cycle_days": 30,
+            "promo_window_days": [28, 29, 0, 1],
+            "promo_discount": 0.85,
+            "promo_price_noise_std": 1.0,
+            "promo_demand_multiplier": 3.0
+        }
+    },
+
+    "simulation": {
+        "_comments": {
+            "seed": "模拟数据生成的随机种子，保证可复现",
+            "n_samples": "生成的模拟市场交互数据条数",
+            "true_A": "合成数据的 Ground Truth 基础日需求量，用于生成后再拟合验证",
+            "true_gamma": "合成数据的 Ground Truth 价格弹性系数",
+            "demand_noise_std": "合成需求的对数正态噪声标准差：demand *= exp(N(0, std))",
+            "demand_clip_min": "合成日需求截断下限（件）,防止噪声把日需求打成 0 或几千件这种离谱离群点，让拟合更稳。例如噪声很大时算出 800 → 被截成 300；算出 0.3 → 被截成 1。",
+            "demand_clip_max": "合成日需求截断上限（件）"
+        },
+        "seed": 2026,
+        "n_samples": 500,
+        "true_A": 50.0,
+        "true_gamma": 1.8,
+        "demand_noise_std": 0.15,
+        "demand_clip_min": 1,
+        "demand_clip_max": 300
+    },
+    "reward_shaping": {
+        "_comments": {
+            "w_storage": "仓储费在 RL 训练 reward 中的权重。略 >1 加重积压代价，抑制狂补货；真实 P&L 统计仍用原始仓储费",
+            "w_stockout": "缺货惩罚在 RL 训练 reward 中的权重。与仓储权重接近，避免只怕缺货不怕囤货",
+            "w_price_extreme": "相对竞品价偏离的二次惩罚系数（仅进训练 reward，不进真实 P&L）。抑制长期定在价格上下限的 bang-bang"
+        },
+        "w_storage": 1.2,
+        "w_stockout": 1.1,
+        "w_price_extreme": 80.0
+    },
+    "sac_agent": {
+        "_comments": {
+            "gamma": "折扣因子 γ，范围 (0,1]。越接近 1 越重视长期回报，常用 0.99",
+            "tau": "Target 网络软更新系数 τ，每次更新时 target = (1-τ)*target + τ*online，越小更新越平滑",
+            "lr": "Adam 优化器学习率，同时作用于 Actor、Critic 和 Alpha",
+            "hidden_dim": "Actor / Critic 网络隐藏层维度",
+            "reward_scale": "写入 Replay Buffer 前的 reward 缩放系数。原始 reward 为 RM 量级（数千），缩放后防止 Q 值爆炸，统计 P&L 时不缩放",
+            "log_alpha_min": "log(α) 的下界，对应 α 最小值 exp(-5) ≈ 0.0067，防止探索系数过小",
+            "log_alpha_max": "log(α) 的上界，对应 α 最大值 exp(2) ≈ 7.389，防止熵系数爆炸导致策略过于随机",
+            "grad_clip_max_norm": "梯度裁剪的最大范数，防止 Critic/Actor 梯度爆炸",
+            "log_std_min": "Actor 输出 log(σ) 的下界，限制策略最小探索噪声（σ≈exp(min)）",
+            "log_std_max": "Actor 输出 log(σ) 的上界，限制策略最大探索噪声（σ≈exp(max)）"
+        },
+        "gamma": 0.99,
+        "tau": 0.005,
+        "lr": 0.0003,
+        "hidden_dim": 256,
+        "reward_scale": 0.0001,
+        "log_alpha_min": -5.0,
+        "log_alpha_max": 2.0,
+        "grad_clip_max_norm": 1.0,
+        "log_std_min": -20.0,
+        "log_std_max": 2.0
+    },
+    "training": {
+        "_comments": {
+            "seed": "训练全局随机种子（NumPy / PyTorch / Python random），保证可复现；环境逐步随机仍由该 RNG 驱动",
+            "max_episodes": "最大训练 Episode 数",
+            "batch_size": "每次 SAC 更新的 mini-batch 大小",
+            "warmup_steps": "预热步数：此期间随机采样动作填充 Replay Buffer，不进行梯度更新",
+            "replay_buffer_capacity": "经验回放池最大容量（transition 条数）",
+            "curriculum_difficulties": "课程学习难度阶段顺序",
+            "curriculum_thresholds": "各阶段晋级阈值（RM）：最近 window_size 回合平均 P&L 达到此值则升难",
+            "curriculum_window_size": "课程晋级评估的滑动窗口大小（回合数）"
+        },
+        "seed": 42,
+        "max_episodes": 200,
+        "batch_size": 128,
+        "warmup_steps": 1000,
+        "replay_buffer_capacity": 200000,
+        "curriculum_difficulties": [
+            "easy",
+            "medium",
+            "hard"
+        ],
+        "curriculum_thresholds": [
+            35000.0,
+            75000.0
+        ],
+        "curriculum_window_size": 10
+    },
+
+    "paths": {
+        "_comments": {
+            "simulated_csv": "需求 Pipeline 生成的模拟市场数据 CSV（相对项目根目录）",
+            "demand_curve_plot": "需求弹性拟合曲线图保存路径",
+            "tensorboard_dir": "TensorBoard 日志根目录；每次训练在其下自动创建带时间戳的子目录",
+            "tensorboard_run_prefix": "TensorBoard 子目录名前缀，实际目录 = {prefix}_{timestamp}",
+            "models_dir": "模型权重保存目录",
+            "best_model_template": "各难度最佳模型文件名，{difficulty} 替换为 easy/medium/hard",
+            "final_model_name": "训练结束时保存的最终模型文件名",
+            "train_log": "训练过程文本日志（Episode P&L、仓储费等）",
+            "eval_decision_curves": "评估脚本输出的决策曲线图",
+            "baseline_comparison_csv": "Random / ROP+跟价 / 滚动MILP / SAC 同环境对比表 CSV"
+        },
+
+        "simulated_csv": "shopee_cat_food_simulated.csv",
+        "demand_curve_plot": "demand_elasticity_curve.png",
+        "tensorboard_dir": "runs",
+        "tensorboard_run_prefix": "SAC_Shopee",
+        "models_dir": "models",
+        "best_model_template": "sac_actor_best_{difficulty}.pth",
+        "final_model_name": "sac_actor_final.pth",
+        "train_log": "train.out",
+        "eval_decision_curves": "shopee_sac_decision_curves.png",
+        "baseline_comparison_csv": "baseline_comparison.csv"
+    },
+
+    "evaluation": {
+        "_comments": {
+            "difficulty": "评估难度：应与已训练出的 best 权重一致。若课程未升到 hard，不要评 hard（会缺权重或表现失真）",
+            "use_final_model": "true 加载 final（常为训练末期塌缩策略）；false 加载窗口最优 best（推荐）",
+            "seed": "评估 Episode 的环境 reset 种子，便于复现决策曲线"
+        },
+
+        "difficulty": "easy",
+        "use_final_model": false,
+        "seed": 42
+    },
+
+    "baseline_comparison": {
+        "_comments": {
+            "_section": "python compare_baselines.py 的全部参数；改这里即可，无需命令行参数",
+            "difficulty": "对比难度；null 表示沿用 evaluation.difficulty",
+            "episodes": "每个策略重复跑的 Episode 数（多 seed 取均值/标准差）",
+            "seed": "起始随机种子；第 i 局用 seed+i",
+            "skip_sac": "true=只跑 Random 与 ROP；false=再跑 SAC（需 models 下有对应权重）",
+            "skip_milp": "true=跳过滚动 MILP；false=跑 MILP+MatchPrice（需 pip install pulp）",
+            "match_ratio": "ROP / MILP 跟价系数：售价 = 竞品价 × match_ratio",
+            "safety_days": "ROP 安全库存天数：SS = safety_days × 日均需求 μ",
+            "review_horizon": "订货目标覆盖的额外天数：S = μ×(L+review_horizon)+SS",
+            "horizon": "滚动 MILP 窗口天数 N（应覆盖提前期，默认 L+7=21）",
+            "milp_time_limit": "单次 CBC 求解时限（秒）",
+            "milp_gap_rel": "MIP 相对间隙，达此即可停"
+        },
+        "difficulty": null,
+        "episodes": 5,
+        "seed": 42,
+        "skip_sac": false,
+        "skip_milp": false,
+        "match_ratio": 0.98,
+        "safety_days": 3.0,
+        "review_horizon": 1.0,
+        "horizon": 21,
+        "milp_time_limit": 5.0,
+        "milp_gap_rel": 0.01
+    }
+}
